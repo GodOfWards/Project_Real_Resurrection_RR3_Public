@@ -8,8 +8,7 @@ arm64, `com.ea.games.r3_row`) in this repo. Every feature has two docs:
   procedure, how it was found, and what was tried and failed.
 
 All work is based on the latest `develified.apk` from the
-[Project Real Resurrection Discord](https://discord.com/invite/project-resurrection-official-server-1482888689854971997),
-**Mali GPU variant**. Every `libRealRacing3.so` address in these docs is for
+[Project Real Resurrection Discord](https://discord.com/invite/project-resurrection-official-server-1482888689854971997). Every `libRealRacing3.so` address in these docs is for
 that build only (stock md5 `0e8cc145c5a8b5d9e8ee9a4cb9483793`); the patch
 tools refuse any other library. Other GPU variants are untested, see
 [`analysis/gpu-variants.md`](../analysis/gpu-variants.md).
