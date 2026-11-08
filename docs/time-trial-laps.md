@@ -1,15 +1,15 @@
 # Time Trial laps (summary)
 
-In the stock game a Time Trial ends after one timed lap. This library patch
+In the unpatched game a Time Trial ends after one timed lap. This library patch
 lets you keep lapping. Applies to every Time Trial event; other race types
 are unaffected. Detailed version (every byte, how it was found):
 [details/time-trial-laps-details.md](details/time-trial-laps-details.md) (every detailed doc is in [`details/`](details/)).
 
-> **Mali GPU variant only.** Made on the `libRealRacing3.so` of the latest
+> **One APK for every GPU.** Made on the `libRealRacing3.so` of the latest
 > `develified.apk` in the
 > [Project Real Resurrection Discord](https://discord.com/invite/project-resurrection-official-server-1482888689854971997)
-> (as of 2026-10-07). The tool refuses any other library. Other GPU variants
-> may well share it, but that is unconfirmed (`analysis/gpu-variants.md`).
+> (as of 2026-10-07). The tool checks the bytes it changes and refuses a
+> library where they don't match (it doesn't check the md5).
 
 > **Project Real Resurrection.** Part of Project Real Resurrection's work on Real
 > Racing 3. Not affiliated with, endorsed or supported by Electronic Arts.
@@ -18,12 +18,12 @@ are unaffected. Detailed version (every byte, how it was found):
 
 | `--laps` | What happens | Time saved? | Tested |
 |---|---|---|---|
-| `best` (recommended) | Timer restarts every lap; a valid lap that beats your best finishes the session with the normal results screen | Yes, the new best | v2 and v4 yes |
+| `best` (recommended) | Timer restarts every lap; a valid lap that beats your best finishes the session with the normal results screen | Yes, the new best | v2 and v4 yes; v5 not yet |
 | `reset` | Timer restarts every lap, never finishes; leave from the pause menu | No | Yes |
 | `2`, `3`, `5`, `9`, `17` | Finishes after that many laps, timer runs from lap 1 | Unclear | `9` only |
 | `unlimited` | Never finishes | No | No |
 
-With `best` and no stored best yet, the first lap finishes, as in the stock
+With `best` and no stored best yet, the first lap finishes, as in the develified
 game (confirmed 2026-10-12, issue #7). Leaving from the pause menu never saves
 a time.
 
@@ -39,10 +39,10 @@ Brands Hatch ran with no performance problems (2026-10-12, issue #9).
 
 1. Easiest: use the ready-made combined build (laps `best` + store + no drive
    cost), see [patched-library.md](patched-library.md).
-2. Or build just this patch from the stock library
+2. Or build just this patch from the develified library
    ([getting-files.md](getting-files.md)):
    ```sh
-   python3 tools/rr3_tt_laps.py patch stock-libRealRacing3.so libRealRacing3.so --laps best
+   python3 tools/rr3_tt_laps.py patch develified-libRealRacing3.so libRealRacing3.so --laps best
    python3 tools/rr3_tt_laps.py check libRealRacing3.so
    ```
 3. Put it in the APK and install: [installing.md](installing.md).
@@ -63,8 +63,14 @@ two fixes:
 - v4: an invalid (off-track or damage) lap no longer voids the session
   (issue #6).
 
-`--laps best` writes v4. To test one fix at a time, add `--best-version 2`
-or `--best-version 3`; `check` names the version a library has.
+`best` v5 (2026-11-05, issue #5, current tool; not tested in game yet):
+up to v4, **Watch Replay** of a leaderboard ghost looped when your own best
+for that event was faster than the ghost's lap, because the replayed lap was
+"not a best" and the timer restarted. v5 lets a replay finish after one lap
+as in the develified game; Time Trial laps, bests and ghosts work as in v4.
+
+`--laps best` writes v5. To test one fix at a time, add `--best-version 2`,
+`3` or `4`; `check` names the version a library has.
 
 ---
 
