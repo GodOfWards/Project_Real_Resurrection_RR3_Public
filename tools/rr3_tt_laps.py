@@ -20,12 +20,12 @@ the pause menu.
 takes to start the timed lap: every crossing restarts the lap timer, so the
 on-screen time starts from zero each lap. Never finishes either.
 
-`--laps best` keeps 0x102ea8c stock and hooks the finish path instead
+`--laps best` keeps 0x102ea8c develified and hooks the finish path instead
 (0x102eab4, `ldr x0, [x19, #0x60]` -> `b CAVE`). The cave (in the 4 KiB
 alignment padding at 0x1ac0b40) reads the lap just recorded (0x102e5bc) and
 the stored best for the current event (the same lookup the results screen
 uses at 0x1043c8c: game+0x478 -> 0x152dc60 -> 0x9bb760(mgr, event) -> +8).
-A lap that beats it (or no stored best) takes the stock finish, so the game
+A lap that beats it (or no stored best) takes the develified finish, so the game
 files it as usual; any other lap restarts the timer via 0x102eb08. Before
 restarting, the cave sets every slot of the player recording's node-time table
 (recorder TT+0x388 -> +0x10 -> +0x17708) back to -1. The recorder tick
@@ -40,12 +40,23 @@ finish handler before saving. An invalid lap is never a best: the cave sets
 the field back to -1 and restarts the lap (with the node-time clear), so only
 that lap is lost instead of the whole session.
 
-`--best-version N` writes an older `best` cave (2, 3 or 4) so each fix can
-be tested on its own; without it the latest (v4) is written.
+v5 (issue #5) first checks the timing object's Watch Replay flag +0x15c
+(set by the timing ctor 0x102ebd0 from its argument; TT+0x5f4 == 1, the
+leaderboard "Watch Replay" mode; the develified restart path 0x102eb08 also
+reads it). In a replay the cave takes the develified finish at once, so a
+replayed ghost plays one lap and ends instead of looping whenever the viewer's
+own best is faster. To fit in v4's bytes, v5 drops v4's x21 save/restore:
+x21 = timing+0x70 on entry (0x102ea50) and is callee-saved, the finish path
+does not read it before the tick's epilogue restores it, and the restart path
+(0x102eb30 `mov x0, x21`) gets it recomputed (`add x21, x19, #0x70`).
+
+`--best-version N` writes an older `best` cave (2, 3, 4 or 5) so each fix can
+be tested on its own; without it the latest (v5) is written. `check` and
+`contents()` (`tt-laps=best@vN`) recognise v2..v5.
 
 Usage:
   rr3_tt_laps.py check LIB
-  rr3_tt_laps.py patch IN OUT --laps {2,3,5,9,17,unlimited,reset,best} [--best-version {2,3,4}]
+  rr3_tt_laps.py patch IN OUT --laps {2,3,5,9,17,unlimited,reset,best} [--best-version {2,3,4,5}]
 IN may be gzipped; OUT is written uncompressed (or gzipped if it ends in .gz).
 """
 import argparse
@@ -55,13 +66,25 @@ import struct
 import sys
 
 SITE = 0x102EA8C                 # .text VMA == file offset in this build
-STOCK = 0x37F80628               # tbnz w8, #31, 0x102eb50
+DEVELIFIED = 0x37F80628               # tbnz w8, #31, 0x102eb50
 RESTART = 0x1400001F             # b 0x102eb08 (start-of-timed-lap path)
 HOOK = 0x102EAB4                 # ldr x0, [x19, #0x60] in the finish path
-HOOK_STOCK = 0xF9403260
+HOOK_DEVELIFIED = 0xF9403260
 CAVE = 0x1AC0B40                 # zero padding before the page-aligned 0x1ac1000
-# Assembled with llvm-mc; source and addresses in analysis/libRealRacing3.so.md.
+# Assembled with llvm-mc; source and addresses in analysis/libRealRacing3.so.md
+# (v5 listing also in analysis/tt-best-ghost.md section 5).
+# v5 (164 bytes, 0x1ac0b40..0x1ac0be4): Watch Replay (timing+0x15c) -> finish.
 CAVE_CODE = bytes.fromhex(
+    "6972453909030035694e44b93f0500318000005409008012694e04b914000014"
+    "e00313aa96b6d597f503002a68825df8097482522900a072016969f8410100b4"
+    "00e1119137b4e997f6eabb97c00000b4090840b93f0100716d000054bf02096b"
+    "6a000054603240f9c4b7d51768ee40f9680100b4080940f9280100b4085d4091"
+    "08211c91092940a90b0080123f010aeb620000542b4500b8fdffff1775c20191"
+    "cab7d517"
+)
+# Earlier cave (v4, 168 bytes): a Watch Replay of a ghost slower than the
+# viewer's own best restarted the lap, so the replay looped (issue #5).
+CAVE_CODE_V4 = bytes.fromhex(
     "694e44b93f0500318000005409008012694e04b918000014f50f1ff8e00313aa"
     "97b6d597f503002a68825df8097482522900a072016969f8810100b400e11191"
     "38b4e997f7eabb97000100b4090840b93f010071ad000054bf02096b6b000054"
@@ -87,11 +110,13 @@ CAVE_CODE_V2 = bytes.fromhex(
 )
 # `best` caves by version; patch writes BEST_LATEST unless --best-version picks one.
 BEST = {
-    4: (CAVE_CODE, "unlimited until a valid lap beats the stored best"),
+    5: (CAVE_CODE, "unlimited until a valid lap beats the stored best; Watch Replay plays once"),
+    4: (CAVE_CODE_V4, "Watch Replay loops when the viewer's best is faster"),
     3: (CAVE_CODE_V3, "one invalid lap voids the session"),
     2: (CAVE_CODE_V2, "stale live delta after restarted laps"),
 }
 BEST_LATEST = max(BEST)
+CAVE_LEN = max(len(c) for c, _ in BEST.values())   # bytes state() checks (v4: 168)
 HOOK_CODE = 0x142A4823           # b 0x1ac0b40
 LAPS = {"2": 0, "3": 1, "5": 2, "9": 3, "17": 4, "unlimited": 30}
 
@@ -102,20 +127,20 @@ def load(path):
 
 
 def insn(bit):
-    """tbz w8, #bit, 0x102eb50 (same target and register as the stock tbnz)."""
-    return (STOCK & ~(1 << 24) & ~(31 << 19)) | (bit << 19)
+    """tbz w8, #bit, 0x102eb50 (same target and register as the develified tbnz)."""
+    return (DEVELIFIED & ~(1 << 24) & ~(31 << 19)) | (bit << 19)
 
 
 def state(d):
     w, = struct.unpack_from("<I", d, SITE)
     h, = struct.unpack_from("<I", d, HOOK)
     for ver, (code, desc) in BEST.items():
-        if h == HOOK_CODE and w == STOCK and d[CAVE:CAVE + len(CAVE_CODE)] == code + bytes(len(CAVE_CODE) - len(code)):
+        if h == HOOK_CODE and w == DEVELIFIED and d[CAVE:CAVE + CAVE_LEN] == code + bytes(CAVE_LEN - len(code)):
             return f"patched (best v{ver}{'' if ver == BEST_LATEST else ', older'}: {desc})"
-    if h != HOOK_STOCK or any(d[CAVE:CAVE + len(CAVE_CODE)]):
+    if h != HOOK_DEVELIFIED or any(d[CAVE:CAVE + CAVE_LEN]):
         return None
-    if w == STOCK:
-        return "stock (1 lap)"
+    if w == DEVELIFIED:
+        return "develified (1 lap)"
     if w == RESTART:
         return "patched (unlimited, lap timer resets each lap)"
     for name, bit in LAPS.items():
@@ -125,9 +150,9 @@ def state(d):
 
 
 def contents(d):
-    """`patches` entry for rr3_build.py: '' stock, None unrecognised."""
+    """`patches` entry for rr3_build.py: '' develified, None unrecognised."""
     s = state(d)
-    if s is None or s.startswith("stock"):
+    if s is None or s.startswith("develified"):
         return None if s is None else ""
     m = re.search(r"best v(\d+)", s)
     if m:
@@ -154,8 +179,8 @@ def main():
     if a.cmd == "check":
         print("Time Trial:", cur or "unrecognised code at 0x102ea8c / 0x102eab4")
         return
-    if cur != "stock (1 lap)":
-        raise SystemExit(f"input must be the stock library (it is: {cur or 'unrecognised'})")
+    if cur != "develified (1 lap)":
+        raise SystemExit(f"input must be the develified library (it is: {cur or 'unrecognised'})")
     if a.cmd == "patch" and a.best_version and a.laps != "best":
         raise SystemExit("--best-version only goes with --laps best")
     if a.laps == "best":
