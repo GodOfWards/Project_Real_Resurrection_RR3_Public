@@ -4,7 +4,7 @@ Documentation regarding the process of restoration for Real Racing 3 to its full
 
 Notes and tooling for understanding, and eventually modifying, Real Racing 3 game files.
 
-Part of Project Real Resurrection's work on Real Racing 3. Not affiliated with,
+Part of Project Resurrection's work on Real Racing 3. Not affiliated with,
 endorsed or supported by Electronic Arts.
 
 ## Docs
